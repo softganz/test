@@ -42,6 +42,9 @@ if (array_key_exists('core', $_COOKIE)) {
 define('_CORE_FOLDER', $coreFolder);
 if (!defined('_CONFIG_FILE')) define('_CONFIG_FILE','conf.web.php');
 
+cfg('core.version.name','Seti');
+cfg('core.version.code',1);
+cfg('core.version.major','4');
 cfg('core.version','Seti 4.00.0');
 cfg('core.location',ini_get('include_path'));
 cfg('core.release','16.12.28');
@@ -190,7 +193,7 @@ function sendHeader($type='text/html') {
  * @param String $msg
  * @return String
  */
-function debugMsg($msg=NULL,$varname) {
+function debugMsg($msg=NULL,$varname=NULL) {
 	static $debugMsg='';
 	if (is_object($msg) || is_array($msg)) {
 		if (function_exists('print_o')) {
