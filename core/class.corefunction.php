@@ -167,6 +167,15 @@ class R {
 	public $counter;
 	public $online;
 
+	public static function Module($moduleName,$className) {
+		$paraArgs=func_get_args();
+		$rName=$paraArgs[0];
+		$rName='module.'.$rName;
+		$paraArgs[0]=$rName;
+		$ret=call_user_func_array('load_resource', $paraArgs);
+		return $ret;
+	}
+
 	public static function Model($modelName) {
 		$paraArgs=func_get_args();
 		$rName=$paraArgs[0];
@@ -341,8 +350,8 @@ function i($key=null,$value=null) {
 		if (empty($i->am)) $i->am='';
 	}
 	if (!$i->server) {
-		$i->server=&$_SERVER;
 		$i->ip=GetEnv('REMOTE_ADDR');
+		$i->server=&$_SERVER;
 	}
 	if (isset($key) && isset($value)) $i->{$key}=$value;
 	return $i;
@@ -382,7 +391,7 @@ function tr($text,$translatetext=NULL) {
 	}
 
 	$key=strtolower(strip_tags($text));
-	$result=array_key_exists($key,$dict[$lang])?$dict[$lang][$key]:($lang!='en'&&$translatetext?$translatetext:$text);
+	$result=$lang!='en' && $translatetext ? $translatetext : (array_key_exists($key,$dict[$lang])?$dict[$lang][$key]:$text);
 	return $result;
 }
 
@@ -564,7 +573,11 @@ function set_lang($lang=NULL) {
 	if ($lang) {
 		// do nothing
 	} else if ($lang=$_GET['lang']) {
-		setcookie('lang',$lang,time()+10*365*24*60*60,cfg('cookie.path'),cfg('cookie.domain'));
+		if ($lang=='clear') {
+			setcookie('lang',NULL,time()-100,cfg('cookie.path'),cfg('cookie.domain'));
+		} else {
+			setcookie('lang',$lang,time()+10*365*24*60*60,cfg('cookie.path'),cfg('cookie.domain'));
+		}
 		//$_COOKIE['lang']=$lang;
 		//echo 'lang='.$_REQUEST['lang'].'='.post('lang').'='.$lang.'='.$_COOKIE['lang'];
 		//echo cfg('cookie.path').' '.cfg('cookie.domain');
@@ -849,7 +862,7 @@ function load_resource_file($packageName) {
 
 	$loadCount++;
 
-	if(preg_match('/^(r\.|view\.|page\.|on\.|manifest\.)(.*)/i',$packageName,$out)) {
+	if(preg_match('/^(r\.|view\.|page\.|on\.|manifest\.|module\.)(.*)/i',$packageName,$out)) {
 		$res=substr($out[1],0,-1);
 		$package=$out[2];
 	} else {
@@ -865,7 +878,11 @@ function load_resource_file($packageName) {
 	$mainFolder=dirname(__FILE__);
 	$filename=$funcname='';
 
-	if ($res=='r') { // Model Resource
+	if ($res=='module') {
+		$filename='module.';
+		$funcname='module_';
+		$paths[]='modules/'.$module;
+	} else if ($res=='r') { // Model Resource
 		$filename='r.';
 		$funcname='r_';
 		$paths[]='modules/'.$module.'/r';
@@ -911,7 +928,7 @@ function load_resource_file($packageName) {
 
 		$debugStr.='Load filename : <strong>'.$filename.'</strong> and call function <strong>'.$funcname.'()</strong><br />'._NL;
 
-		if ($res=='manifest') {
+		if (in_array($res,array('manifest','module'))) {
 			$folders[]='.';
 		} else {
 			if ($template) {
@@ -1048,7 +1065,7 @@ function load_widget($name,$para) {
 	}
 
 	if (!empty($para->{'data-header'}) && !in_array(strtolower($para->{'option-header'}),array('0','no'))) {
-		$header='<h2>'.($para->{'data-header-url'}?'<a href="'.$para->{'data-header-url'}.'">':'').get_first($para->{'data-header'},$para->id).($para->{'data-header-url'}?'</a>':'').'</h2>'._NL;
+		$header='<h2>'.($para->{'data-header-url'}?'<a href="'.$para->{'data-header-url'}.'">':'').'<span>'.get_first($para->{'data-header'},$para->id).'</span>'.($para->{'data-header-url'}?'</a>':'').'</h2>'._NL;
 	}
 
 	if ($para->{'data-option-replace'}=='yes') {
@@ -1117,7 +1134,8 @@ function load_extension($name) {
  * @param String $event
  * @param Mixed $arg1 ... $arg9
  */
-function event_tricker($event,&$arg1,&$arg2,&$arg3,&$arg4,&$arg5,&$arg6,&$arg7,&$arg8,&$arg9) {
+function event_tricker($event=NULL,&$arg1=NULL,&$arg2=NULL,&$arg3=NULL,&$arg4=NULL,&$arg5=NULL,&$arg6=NULL,&$arg7=NULL,&$arg8=NULL,&$arg9=NULL) {
+	//debugMsg($event);
 	static $extensions=null;
 	if (!isset($extensions)) $extensions=cfg('extensions')?cfg('extensions'):array();
 	/* do extension_event_tricker */
@@ -1232,7 +1250,10 @@ function module_install($module) {
  *
  * @return Boolean
  */
-function is_home() { return !isset($R->request) || empty($R->request) || $R->request=='home';}
+function is_home() {
+	global $R;
+	return !isset($R->request) || empty($R->request) || $R->request=='home';
+}
 
 /**
  * Check current user is admin or module admin
@@ -1394,7 +1415,8 @@ function process_variable($html) {
 	// Replace {tr:} with url()
 	$html=preg_replace_callback('#{(tr\:)(.*?)}#',
 												function($match){
-													return tr($match[2]);
+													$para=preg_split('/,/', $match[2]);
+													return tr($para[0],$para[1]);
 												},
 												$html);
 
@@ -1498,6 +1520,8 @@ function process_menu($menu) {
 		$exeClass=new Module($module);
 	}
 
+	R::Module($module.'.init',$exeClass);
+
 	$menuArgs=array_merge(array($module),$menu['call']['arg']);
 
 	// Load request from package function file func.package.method[.method].php
@@ -1539,7 +1563,7 @@ function process_menu($menu) {
  *
  * @return String
  */
-function process_request() {
+function process_request($loadTemplate=true,$pageTemplate=NULL) {
 	global $R,$request_result,$page;
 
 	$request=$R->request;
@@ -1611,7 +1635,7 @@ function process_request() {
 	if ($manifest) $process_debug .= 'Manifest module file : '.print_o($manifest,'$manifest').'<br />';
 
 	if ($manifest[1] && $menu) { // This is a core version 4
-		$process_debug.='Load core version 4<br />';
+		$process_debug.='Load core version 4 <b>'.$request.'</b><br />';
 		list($exeClass,$found,$ret)=process_menu($menu);
 	//} else if ($init_module_file=load_init_module(q(0))) { // This is a core version 3
 	//	$process_debug.='Load core version 3<br />';
@@ -1645,6 +1669,8 @@ function process_request() {
 	if (cfg('web.splash.time')) {
 		setcookie('splash',true,time()+cfg('web.splash.time')*60,cfg('cookie.path'),cfg('cookie.domain')); // show splash if not visite site
 	}
+	//echo $process_debug;
+	//print_o($menu,'$menu',1).print_o(i(),'i()',1);
 
 	if (cfg('Content-Type')=='text/xml') {
 		die(process_widget($ret));
@@ -1682,10 +1708,13 @@ function process_request() {
 		debugMsg($cfg,'cfg');
 	}
 
-	if (empty($page)) $page='index';
-	$request_result=load_template($page,NULL,false);
-	$request_result=process_widget($request_result);
-	echo $request_result;
+	if ($pageTemplate) $page=$pageTemplate;
+	else if (empty($page)) $page='index';
+	if ($loadTemplate) {
+		$request_result=load_template($page,NULL,false);
+		$request_result=process_widget($request_result);
+		echo $request_result;
+	}
 	return $request_result;
 }
 
